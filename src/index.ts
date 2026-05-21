@@ -6,7 +6,13 @@ import {
   invoke
 } from "./client.js";
 
-export type { HuozigeCallback, HuozigeRequestMethod } from "./types.js";
+export type {
+  HuozigeBindingColumn,
+  HuozigeCallback,
+  HuozigeComboBinding,
+  HuozigeRequestMethod,
+  HuozigeTableBinding
+} from "./types.js";
 export {
   __resetTokenCacheForTests,
   callGetComboBindingOptionsWithCookie,

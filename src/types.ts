@@ -15,3 +15,25 @@ export interface TokenCacheEntry {
   accessToken: string;
   expiresAt: number;
 }
+
+export interface HuozigeBindingColumn {
+  "column-name": string;
+  guid: string;
+}
+
+export interface HuozigeTableBinding {
+  columns: HuozigeBindingColumn[];
+  "table-name": string;
+  "view-name": string;
+  "list-view-location": string;
+  "page-name": string;
+  "target-page": number;
+  "page-limit-row-count": number;
+}
+
+export interface HuozigeComboBinding {
+  "id-column": HuozigeBindingColumn;
+  "text-column": HuozigeBindingColumn;
+  "table-name": string;
+  "page-name": string;
+}

@@ -1,6 +1,9 @@
 import type {
+  HuozigeComboBinding,
+  HuozigeBindingColumn,
   HuozigeCallback,
   HuozigeRequestMethod,
+  HuozigeTableBinding,
   TokenCacheEntry,
   TokenResponse
 } from "./types.js";
@@ -61,36 +64,34 @@ export async function callServerCommandWithCookie(
 }
 
 export async function callGetTableDataWithOffsetWithCookie(
-  method: HuozigeRequestMethod = "POST",
   appBaseUrl: string,
-  requestInJSON: string | null | undefined,
+  tableBinding: HuozigeTableBinding,
   cookie: string | null | undefined,
   callback: HuozigeCallback
 ): Promise<void> {
   const headers = createCookieHeaders(cookie);
-  await sendRequest(
+  await sendRequestWithResponseMapper(
     createEndpoint(appBaseUrl, "Home/GetTableDataWithOffset"),
     headers,
-    requestInJSON,
+    JSON.stringify(createTableDataRequest(tableBinding)),
     callback,
-    method
+    (responseText) => JSON.stringify(mapTableDataResponse(responseText, tableBinding))
   );
 }
 
 export async function callGetComboBindingOptionsWithCookie(
-  method: HuozigeRequestMethod = "POST",
   appBaseUrl: string,
-  requestInJSON: string | null | undefined,
+  comboBinding: HuozigeComboBinding,
   cookie: string | null | undefined,
   callback: HuozigeCallback
 ): Promise<void> {
   const headers = createCookieHeaders(cookie);
-  await sendRequest(
+  await sendRequestWithResponseMapper(
     createEndpoint(appBaseUrl, "Home/GetComboBindingOptions"),
     headers,
-    requestInJSON,
+    JSON.stringify(createComboBindingRequest(comboBinding)),
     callback,
-    method
+    (responseText) => JSON.stringify(mapComboBindingOptionsResponse(responseText, comboBinding))
   );
 }
 
@@ -129,6 +130,36 @@ async function sendRequest(
     }
 
     callback(response.status, responseText || null, extractErrorMessage(responseText, response.statusText));
+  } catch (error) {
+    callback(0, null, getErrorMessage(error));
+  }
+}
+
+async function sendRequestWithResponseMapper(
+  endpoint: string,
+  headers: Headers,
+  requestInJSON: string,
+  callback: HuozigeCallback,
+  mapResponse: (responseText: string) => string
+): Promise<void> {
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: requestInJSON
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      callback(response.status, responseText || null, extractErrorMessage(responseText, response.statusText));
+      return;
+    }
+
+    try {
+      callback(response.status, mapResponse(responseText), null);
+    } catch (error) {
+      callback(response.status, responseText, getErrorMessage(error));
+    }
   } catch (error) {
     callback(0, null, getErrorMessage(error));
   }
@@ -204,6 +235,70 @@ function createEndpoint(appBaseUrl: string, path: string): string {
   return new URL(path, normalizedBaseUrl).toString();
 }
 
+function createTableDataRequest(tableBinding: HuozigeTableBinding): Record<string, unknown> {
+  const pageName = tableBinding["page-name"];
+  const tableName = tableBinding["table-name"];
+
+  return {
+    bindingInfos: tableBinding.columns.map((column) => getBindingGuid(column)),
+    currentRowInfo: {
+      currentTable: tableName,
+      viewname: tableBinding["view-name"],
+      listviewLocation: tableBinding["list-view-location"]
+    },
+    demandRowCount: 0,
+    currentDataLength: 0,
+    needRowVersion: true,
+    editorDataInfos: null,
+    sortCommandID: null,
+    orderByInfo: null,
+    offsetConditionInfo: {
+      targetPage: tableBinding["target-page"],
+      pageLimitRowCount: tableBinding["page-limit-row-count"]
+    },
+    columnFilterQueries: null,
+    totalRowBindingInfos: [],
+    pageName
+  };
+}
+
+function createComboBindingRequest(comboBinding: HuozigeComboBinding): Record<string, unknown> {
+  return {
+    tableName: comboBinding["table-name"],
+    valueColumnBindingInfo: getBindingGuid(comboBinding["id-column"]),
+    displayColumnBindingInfo: getBindingGuid(comboBinding["text-column"]),
+    itemQuery: null,
+    offset: null,
+    pageName: comboBinding["page-name"]
+  };
+}
+
+function mapTableDataResponse(responseText: string, tableBinding: HuozigeTableBinding): { data: Array<Record<string, unknown>> } {
+  const parsed = parseJsonObject(responseText);
+  const rows = getTableDataRows(parsed);
+
+  return {
+    data: rows.map((row) => mapTableRow(row, tableBinding.columns))
+  };
+}
+
+function mapComboBindingOptionsResponse(
+  responseText: string,
+  comboBinding: HuozigeComboBinding
+): { data: Array<Record<string, unknown>> } {
+  const parsed = parseJsonObject(responseText);
+  const items = getComboItems(parsed);
+  const textColumnName = comboBinding["text-column"]["column-name"];
+  const idColumnName = comboBinding["id-column"]["column-name"];
+
+  return {
+    data: items.map((item) => ({
+      [textColumnName]: item.DisplayValue,
+      [idColumnName]: item.Value
+    }))
+  };
+}
+
 function createRequestUrl(
   endpoint: string,
   requestInJSON: string | null | undefined,
@@ -245,6 +340,75 @@ function serializeQueryValue(value: unknown): string {
   }
 
   return JSON.stringify(value);
+}
+
+function getBindingGuid(column: HuozigeBindingColumn): string {
+  if (!column.guid) {
+    throw new Error("Binding column is missing guid.");
+  }
+
+  return column.guid;
+}
+
+function parseJsonObject(responseText: string): Record<string, unknown> {
+  const parsed = JSON.parse(responseText) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Response is not a JSON object.");
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function getTableDataRows(response: Record<string, unknown>): Array<Record<string, unknown>> {
+  const table = response.table;
+  if (!table || typeof table !== "object" || Array.isArray(table)) {
+    throw new Error("Response table is missing.");
+  }
+
+  const data = (table as Record<string, unknown>).Data;
+  if (!Array.isArray(data)) {
+    throw new Error("Response table.Data is missing.");
+  }
+
+  return data.map((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      throw new Error("Response row is invalid.");
+    }
+
+    return row as Record<string, unknown>;
+  });
+}
+
+function mapTableRow(
+  row: Record<string, unknown>,
+  columns: HuozigeTableBinding["columns"]
+): Record<string, unknown> {
+  const mappedRow: Record<string, unknown> = {};
+
+  columns.forEach((column, index) => {
+    mappedRow[column["column-name"]] = row[`C${index}`];
+  });
+
+  return mappedRow;
+}
+
+function getComboItems(response: Record<string, unknown>): Array<{ Value: unknown; DisplayValue: unknown }> {
+  const items = response.Items;
+  if (!Array.isArray(items)) {
+    throw new Error("Response Items is missing.");
+  }
+
+  return items.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("Response item is invalid.");
+    }
+
+    const record = item as Record<string, unknown>;
+    return {
+      Value: record.Value,
+      DisplayValue: record.DisplayValue
+    };
+  });
 }
 
 function getCredentials(

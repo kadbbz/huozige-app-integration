@@ -14,10 +14,42 @@ const config = {
     "ForguncyServer=9mfghtL3fR2SNA-RRDSJPAMLbXh-H18XEC1yrC6zvjL4xxoXnCL9_gjT_y_vtedp1JknBIyxoDzsJQd7nESlMe_4CbaDY96YxImQR_AzQQRbtu7XynbHzDaWeDVBGLDaUKdY8lzGF9fuCEa2xtgKC1ud0UF69E0RqotCqXDsJ1p76ysidUJ3oqinezJ49tBpE08QOvEDqlwSbpg19be_Wrhp5u24Njy6uWDoFqmj_k2ZdGMPuY0uHvqdeQd3r3bRIxayAILJ01Q13dGVMPgF_FLpesiIJCwziqCLfM1ox5blQf0lvbjKchmFMEnDS6nldG-L7wKb6zs91RtWKgaLCJ0ojuhewACc1UmhfMlrMsveBKBWLidhlyJ04yO6rpq7Eek1IQM7hFBlHqNFOQgu_SWmydw7ygqKoViwPdLTS04u7gBNq42NQTTsMeFpDmYfGritn7thw8U2Ovl2s6ATw3QUNzPea0kpE62T__H0QxNjYEevFHIRlrcArere6nksxRoSiTFexCfxR9xG8rRsE--rKykMMb_zUqqbTYqaeHrT8MKTHZeMusWkzFGt4BUjhB91mcMCkHYQIFdSzuwksAqrBqDEySVqHsaHyBsnCdTEWGmXuBThbxrzvevqkyzij_FR0rEcyYx1Da7-U-7dl136I52xExE_7WCWId-M0LPFXZ_5opufPOHSDHC0TolN15Ut9wEnGE4F6bg3r8890uASd9dcWrAS3E0CL0yjEYsxJjVtbalN5RevzFabi84_oeF44CzLLSZaGD4Hmsmd_w6DKtAqldeNar1foJQe5b6EUCULf2BVeyf7PktG2m2QO3TaQFdnsPQVNfwiJLNrLuJh9fsZULjd3p4xRLC7LTYb0oFVEoP57iDZGaYUaH-y; fgc_UID_anMfdXFhcXwff3lm=dfc4140b-5c0a-4cfe-8ff8-81df14aa75e9"
 };
 
+const tableBinding = {
+  columns: [
+    {
+      "column-name": "文本",
+      guid: "38bc1902-7dea-421d-a10e-4cec1c7ab95e"
+    },
+    {
+      "column-name": "整数",
+      guid: "c93f6c99-4cdb-45de-b174-b3196a61cb7e"
+    }
+  ],
+  "table-name": "数据表1",
+  "view-name": "测试页面表格1",
+  "list-view-location": "测试页面|表格1",
+  "page-name": "测试页面",
+  "target-page": 1,
+  "page-limit-row-count": 0
+};
+
+const comboBinding = {
+  "id-column": {
+    "column-name": "整数",
+    guid: "9e5cf221-9fbd-4ded-aeb5-bb02449e819d"
+  },
+  "text-column": {
+    "column-name": "文本",
+    guid: "7135e363-d135-4c05-91b2-c162a85f050c"
+  },
+  "table-name": "数据表1",
+  "page-name": "测试页面"
+};
+
 const cases = [
   createMachineCase({
     name: "machine-1 anonymous command",
-    serverCommand: "匿名请求",
+    serverCommand: "匿名访问",
     requestBody: { 参数1: "a", 参数2: "b" },
     clientId: null,
     secretKey: null,
@@ -32,7 +64,7 @@ const cases = [
   createMachineCase({
     name: "machine-1b anonymous command GET",
     method: "GET",
-    serverCommand: "匿名请求-GET",
+    serverCommand: "匿名访问-GET",
     requestBody: { 参数1: "a", 参数2: "b" },
     clientId: null,
     secretKey: null,
@@ -87,66 +119,44 @@ if (config.cookie) {
         assert.equal(body.ErrCode, 0);
       }
     }),
-    createGenericCase({
+    {
       name: "cookie-2 GetTableDataWithOffset",
       endpoint: createEndpoint(config.appBaseUrl, "Home/GetTableDataWithOffset"),
-      requestBody: {
-        bindingInfos: [
-          "38bc1902-7dea-421d-a10e-4cec1c7ab95e",
-          "c93f6c99-4cdb-45de-b174-b3196a61cb7e"
-        ],
-        currentRowInfo: {
-          currentTable: "数据表1",
-          viewname: "测试页面表格1",
-          listviewLocation: "测试页面|表格1"
-        },
-        demandRowCount: 0,
-        currentDataLength: 0,
-        needRowVersion: true,
-        editorDataInfos: null,
-        sortCommandID: null,
-        orderByInfo: null,
-        offsetConditionInfo: {
-          targetPage: 1,
-          pageLimitRowCount: 0
-        },
-        columnFilterQueries: null,
-        totalRowBindingInfos: [],
-        pageName: "测试页面"
-      },
-      run: (requestInJSON, callback) =>
-        callGetTableDataWithOffsetWithCookie("POST", config.appBaseUrl, requestInJSON, config.cookie, callback),
+      requestBody: tableBinding,
+      run: () =>
+        runCallback((callback) =>
+          callGetTableDataWithOffsetWithCookie(config.appBaseUrl, tableBinding, config.cookie, callback)
+        ),
       verify: (result) => {
         assert.equal(result.httpCode, 200);
         const body = parseJson(result.responseInJSON);
-        assert.ok(Array.isArray(body.table?.Data));
-        assert.equal(body.table?.Data?.[0]?.C0, "ABC");
-        assert.equal(body.table?.Data?.[1]?.C0, "DEF");
+        assert.deepEqual(body, {
+          data: [
+            { 文本: "ABC", 整数: 1 },
+            { 文本: "DEF", 整数: 2 }
+          ]
+        });
       }
-    }),
-    createGenericCase({
+    },
+    {
       name: "cookie-3 GetComboBindingOptions",
       endpoint: createEndpoint(config.appBaseUrl, "Home/GetComboBindingOptions"),
-      requestBody: {
-        tableName: "数据表1",
-        valueColumnBindingInfo: "9e5cf221-9fbd-4ded-aeb5-bb02449e819d",
-        displayColumnBindingInfo: "7135e363-d135-4c05-91b2-c162a85f050c",
-        itemQuery: null,
-        offset: null,
-        pageName: "测试页面",
-        cacheSettingID: "f604732f-465b-3429-27d7-75ed83b39a6e"
-      },
-      run: (requestInJSON, callback) =>
-        callGetComboBindingOptionsWithCookie("POST", config.appBaseUrl, requestInJSON, config.cookie, callback),
+      requestBody: comboBinding,
+      run: () =>
+        runCallback((callback) =>
+          callGetComboBindingOptionsWithCookie(config.appBaseUrl, comboBinding, config.cookie, callback)
+        ),
       verify: (result) => {
         assert.equal(result.httpCode, 200);
         const body = parseJson(result.responseInJSON);
-        assert.equal(body.Items?.[0]?.Value, 1);
-        assert.equal(body.Items?.[0]?.DisplayValue, "ABC");
-        assert.equal(body.Items?.[1]?.Value, 2);
-        assert.equal(body.Items?.[1]?.DisplayValue, "DEF");
+        assert.deepEqual(body, {
+          data: [
+            { 文本: "ABC", 整数: 1 },
+            { 文本: "DEF", 整数: 2 }
+          ]
+        });
       }
-    })
+    }
   );
 } else {
   console.log("HUOZIGE_COOKIE is not set. Cookie-based integration cases will be skipped.");
