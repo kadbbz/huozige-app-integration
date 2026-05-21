@@ -1,11 +1,12 @@
 {
   "name": "call-huozige-servercommand",
   "version": "0.1.0",
-  "description": "TypeScript client scaffold for Huozige server command APIs.",
+  "description": "TypeScript SDK for Huozige WebAPI server commands.",
   "keywords": [
     "typescript",
-    "api-client",
-    "huozige"
+    "huozige",
+    "webapi",
+    "sdk"
   ],
   "license": "MIT",
   "type": "module",
@@ -22,10 +23,13 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf dist",
+    "clean": "node --eval \"import('node:fs').then(({ rmSync }) => rmSync('dist', { recursive: true, force: true }))\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "prepare": "npm run build",
-    "test": "npm run build && node --test tests/*.test.js",
+    "test": "npm run test:unit",
+    "test:unit": "npm run build && node --test test/**/*.test.js",
+    "test:integration": "npm run build && node test/run-integration.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {

@@ -1,7 +1,23 @@
-export { HuozigeAppClient, ServerCommandError } from "./client.js";
-export type {
-  HuozigeAppClientApi,
-  InvokeGeneralApi,
-  InvokeServerCommand,
-  ServerCommandCallback
-} from "./types.js";
+import {
+  __resetTokenCacheForTests,
+  callGetComboBindingOptionsWithCookie,
+  callGetTableDataWithOffsetWithCookie,
+  callServerCommandWithCookie,
+  invoke
+} from "./client.js";
+
+export type { HuozigeCallback } from "./types.js";
+export {
+  __resetTokenCacheForTests,
+  callGetComboBindingOptionsWithCookie,
+  callGetTableDataWithOffsetWithCookie,
+  callServerCommandWithCookie,
+  invoke
+};
+
+export const HuozigeWebApiSdk = {
+  invoke,
+  callServerCommandWithCookie,
+  callGetTableDataWithOffsetWithCookie,
+  callGetComboBindingOptionsWithCookie
+};

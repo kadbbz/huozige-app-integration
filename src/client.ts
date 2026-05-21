@@ -1,371 +1,250 @@
-import type {
-  HuozigeAppClientApi,
-  ServerCommandCallback
-} from "./types.js";
+import type { HuozigeCallback, TokenCacheEntry, TokenResponse } from "./types.js";
 
-const DEFAULT_TOKEN_PATH = "/UserService/connect/token";
-const DEFAULT_TOKEN_SCOPE = "FGC_AllAppsServerCommands";
-const DEFAULT_TOKEN_SKEW_MS = 30_000;
+const TOKEN_SCOPE = "FGC_AllAppsServerCommands";
+const TOKEN_GRANT_TYPE = "client_credentials";
+const TOKEN_PORT = "22345";
+const tokenCache = new Map<string, TokenCacheEntry>();
 
-const tokenCache = new Map<string, CachedTokenEntry>();
-
-interface CachedTokenEntry {
-  accessToken: string;
-  expiresAt: number;
-}
-
-interface ServerCommandOAuth2Options {
-  clientId: string;
-  clientSecret: string;
-  tokenUrl?: string;
-  tokenPath?: string;
-  scope?: string;
-  grantType?: "client_credentials";
-  expiresInSkewMs?: number;
-}
-
-interface ServerCommandTokenResponse {
-  access_token: string;
-  expires_in?: number;
-  token_type?: string;
-  scope?: string;
-}
-
-class ServerCommandError extends Error {
-  readonly status: number;
-  readonly responseText: string;
-
-  constructor(message: string, status: number, responseText: string) {
-    super(message);
-    this.name = "ServerCommandError";
-    this.status = status;
-    this.responseText = responseText;
-  }
-}
-
-export const HuozigeAppClient: HuozigeAppClientApi = {
-  async "invoke-server-command"(
-    baseUrl,
-    appName,
-    serverCommandName,
-    requestJson,
-    ak,
-    sk,
-    callback
-  ): Promise<void> {
-    return runWithCallback(callback, async () => {
-      const fetchImpl = getFetch();
-      const accessToken =
-        ak != null && sk != null
-          ? await getAccessToken(fetchImpl, baseUrl, {
-              clientId: ak,
-              clientSecret: sk
-            })
-          : undefined;
-      const responseJson = await postJsonString(
-        fetchImpl,
-        buildServerCommandUrl(baseUrl, appName, serverCommandName),
-        requestJson,
-        buildHeaders({
-          Authorization: accessToken ? `Bearer ${accessToken}` : undefined
-        })
-      );
-
-      callback(false, responseJson, "", "");
-    });
-  },
-  async "invoke-general-api"(endpoint, requestJson, cookie, callback): Promise<void> {
-    return runWithCallback(callback, async () => {
-      const fetchImpl = getFetch();
-      const responseJson = await postGeneralApiJson(
-        fetchImpl,
-        endpoint,
-        requestJson,
-        buildHeaders({
-          Cookie: cookie ?? undefined
-        })
-      );
-
-      callback(false, responseJson, "", "");
-    });
-  }
-};
-
-async function runWithCallback(
-  callback: ServerCommandCallback,
-  run: () => Promise<void>
+export async function invoke(
+  appBaseUrl: string,
+  serverCommand: string,
+  requestInJSON: string | null | undefined,
+  clientId: string | null | undefined,
+  secretKey: string | null | undefined,
+  callback: HuozigeCallback
 ): Promise<void> {
   try {
-    await run();
+    const headers = new Headers({
+      "Content-Type": "application/json; charset=utf-8"
+    });
+
+    const credentials = getCredentials(clientId, secretKey);
+    if (credentials) {
+      const accessToken = await getAccessToken(appBaseUrl, credentials.clientId, credentials.secretKey);
+      headers.set("Authorization", `Bearer ${accessToken}`);
+    }
+
+    await sendRequest(
+      createEndpoint(appBaseUrl, `ServerCommand/${encodeURIComponent(serverCommand)}`),
+      headers,
+      requestInJSON,
+      callback
+    );
   } catch (error) {
-    callback(true, "", getErrorCode(error), getErrorMessage(error));
+    callback(0, null, getErrorMessage(error));
   }
 }
 
-async function postJsonString(
-  fetchImpl: typeof fetch,
-  url: string,
-  requestJson: string,
-  extraHeaders?: Record<string, string>
-): Promise<string> {
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: buildHeaders({
-      "content-type": "application/json",
-      ...extraHeaders
-    }),
-    body: JSON.stringify({
-      input: requestJson
-    })
+export async function callServerCommandWithCookie(
+  appBaseUrl: string,
+  serverCommand: string,
+  requestInJSON: string | null | undefined,
+  cookie: string | null | undefined,
+  callback: HuozigeCallback
+): Promise<void> {
+  const headers = createCookieHeaders(cookie);
+  await sendRequest(
+    createEndpoint(appBaseUrl, `ServerCommand/${encodeURIComponent(serverCommand)}`),
+    headers,
+    requestInJSON,
+    callback
+  );
+}
+
+export async function callGetTableDataWithOffsetWithCookie(
+  appBaseUrl: string,
+  requestInJSON: string | null | undefined,
+  cookie: string | null | undefined,
+  callback: HuozigeCallback
+): Promise<void> {
+  const headers = createCookieHeaders(cookie);
+  await sendRequest(
+    createEndpoint(appBaseUrl, "Home/GetTableDataWithOffset"),
+    headers,
+    requestInJSON,
+    callback
+  );
+}
+
+export async function callGetComboBindingOptionsWithCookie(
+  appBaseUrl: string,
+  requestInJSON: string | null | undefined,
+  cookie: string | null | undefined,
+  callback: HuozigeCallback
+): Promise<void> {
+  const headers = createCookieHeaders(cookie);
+  await sendRequest(
+    createEndpoint(appBaseUrl, "Home/GetComboBindingOptions"),
+    headers,
+    requestInJSON,
+    callback
+  );
+}
+
+function createCookieHeaders(cookie: string | null | undefined): Headers {
+  const headers = new Headers({
+    "Content-Type": "application/json; charset=utf-8"
   });
 
-  const text = await response.text();
-
-  if (!response.ok) {
-    throw new ServerCommandError(
-      `Request failed with status ${response.status}.`,
-      response.status,
-      text
-    );
+  if (cookie) {
+    headers.set("Cookie", cookie);
   }
 
-  return text;
+  return headers;
 }
 
-async function postGeneralApiJson(
-  fetchImpl: typeof fetch,
+async function sendRequest(
   endpoint: string,
-  requestJson: string,
-  extraHeaders?: Record<string, string>
-): Promise<string> {
-  const response = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: buildHeaders({
-      "content-type": "application/json",
-      ...extraHeaders
-    }),
-    body: requestJson
-  });
+  headers: Headers,
+  requestInJSON: string | null | undefined,
+  callback: HuozigeCallback
+): Promise<void> {
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: requestInJSON ?? null
+    });
 
-  const text = await response.text();
+    const responseText = await response.text();
+    if (response.ok) {
+      callback(response.status, responseText, null);
+      return;
+    }
 
-  if (!response.ok) {
-    throw new ServerCommandError(
-      `Request failed with status ${response.status}.`,
-      response.status,
-      text
-    );
+    callback(response.status, responseText || null, extractErrorMessage(responseText, response.statusText));
+  } catch (error) {
+    callback(0, null, getErrorMessage(error));
   }
-
-  return text;
 }
 
 async function getAccessToken(
-  fetchImpl: typeof fetch,
-  baseUrl: string,
-  oauth2: ServerCommandOAuth2Options
+  appBaseUrl: string,
+  clientId: string,
+  secretKey: string
 ): Promise<string> {
-  const cacheKey = getTokenCacheKey(baseUrl, oauth2);
-  const cachedToken = tokenCache.get(cacheKey);
-
-  if (cachedToken && cachedToken.expiresAt > Date.now()) {
-    return cachedToken.accessToken;
-  }
-
-  const response = await requestAccessToken(fetchImpl, baseUrl, oauth2);
-  tokenCache.set(cacheKey, toCachedToken(response, oauth2));
-
-  return response.access_token;
-}
-
-async function requestAccessToken(
-  fetchImpl: typeof fetch,
-  baseUrl: string,
-  oauth2: ServerCommandOAuth2Options
-): Promise<ServerCommandTokenResponse> {
-  const tokenUrls = buildTokenUrls(baseUrl, oauth2);
+  const tokenUrls = createTokenUrls(appBaseUrl);
   let lastError: unknown;
 
-  for (const tokenUrl of tokenUrls) {
+  for (let index = 0; index < tokenUrls.length; index += 1) {
+    const tokenUrl = tokenUrls[index];
+    const cachedToken = tokenCache.get(tokenUrl);
+    if (cachedToken && cachedToken.expiresAt > Date.now()) {
+      return cachedToken.accessToken;
+    }
+
     try {
-      return await requestAccessTokenFromUrl(fetchImpl, tokenUrl, oauth2);
+      const response = await fetch(tokenUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+        },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: secretKey,
+          scope: TOKEN_SCOPE,
+          grant_type: TOKEN_GRANT_TYPE
+        })
+      });
+
+      if (response.status === 404 && index < tokenUrls.length - 1) {
+        continue;
+      }
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        throw new Error(extractErrorMessage(responseText, response.statusText));
+      }
+
+      const tokenResponse = (await response.json()) as TokenResponse;
+      validateTokenResponse(tokenResponse);
+      tokenCache.set(tokenUrl, {
+        accessToken: tokenResponse.access_token,
+        expiresAt: Date.now() + Math.max(tokenResponse.expires_in - 1, 0) * 1000
+      });
+      return tokenResponse.access_token;
     } catch (error) {
       lastError = error;
-
-      if (!shouldTryNextTokenUrl(error)) {
-        throw error;
+      if (index < tokenUrls.length - 1 && isRetryableTokenError(error)) {
+        continue;
       }
+
+      throw error;
     }
   }
 
-  if (lastError) {
-    throw lastError;
+  throw lastError instanceof Error ? lastError : new Error("Failed to acquire access token.");
+}
+
+function createTokenUrls(appBaseUrl: string): string[] {
+  const appUrl = new URL(appBaseUrl);
+  const preferredUrl = new URL(`${appUrl.protocol}//${appUrl.hostname}:${TOKEN_PORT}/UserService/connect/token`);
+  const fallbackUrl = new URL(`${appUrl.protocol}//${appUrl.hostname}/UserService/connect/token`);
+  return [preferredUrl.toString(), fallbackUrl.toString()];
+}
+
+function createEndpoint(appBaseUrl: string, path: string): string {
+  const normalizedBaseUrl = appBaseUrl.endsWith("/") ? appBaseUrl : `${appBaseUrl}/`;
+  return new URL(path, normalizedBaseUrl).toString();
+}
+
+function getCredentials(
+  clientId: string | null | undefined,
+  secretKey: string | null | undefined
+): { clientId: string; secretKey: string } | null {
+  if (typeof clientId === "string" && clientId.length > 0 && typeof secretKey === "string" && secretKey.length > 0) {
+    return { clientId, secretKey };
   }
 
-  throw new Error("Token request failed.");
+  return null;
 }
 
-async function requestAccessTokenFromUrl(
-  fetchImpl: typeof fetch,
-  tokenUrl: string,
-  oauth2: ServerCommandOAuth2Options
-): Promise<ServerCommandTokenResponse> {
-  const response = await fetchImpl(tokenUrl, {
-    method: "POST",
-    headers: buildHeaders({
-      "content-type": "application/x-www-form-urlencoded"
-    }),
-    body: new URLSearchParams({
-      client_id: oauth2.clientId,
-      client_secret: oauth2.clientSecret,
-      scope: oauth2.scope ?? DEFAULT_TOKEN_SCOPE,
-      grant_type: oauth2.grantType ?? "client_credentials"
-    }).toString()
-  });
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    throw new ServerCommandError(
-      `Token request failed with status ${response.status}.`,
-      response.status,
-      text
-    );
+function isRetryableTokenError(error: unknown): boolean {
+  if (error instanceof TypeError) {
+    return true;
   }
 
-  const parsed = safeParseJson(text);
-
-  if (!parsed?.access_token || typeof parsed.access_token !== "string") {
-    throw new Error("Token response does not contain a valid access_token.");
+  if (!(error instanceof Error)) {
+    return false;
   }
 
-  return {
-    access_token: parsed.access_token,
-    expires_in:
-      typeof parsed.expires_in === "number" ? parsed.expires_in : undefined,
-    token_type:
-      typeof parsed.token_type === "string" ? parsed.token_type : undefined,
-    scope: typeof parsed.scope === "string" ? parsed.scope : undefined
-  };
+  return error.message.includes("fetch failed") || error.message.includes("ECONNREFUSED");
 }
 
-function buildServerCommandUrl(
-  baseUrl: string,
-  appName: string,
-  serverCommandName: string
-): string {
-  return new URL(
-    `${trimSlashes(appName)}/ServerCommand/${trimSlashes(serverCommandName)}`,
-    ensureTrailingSlash(baseUrl)
-  ).toString();
+function validateTokenResponse(tokenResponse: Partial<TokenResponse>): asserts tokenResponse is TokenResponse {
+  if (!tokenResponse.access_token || typeof tokenResponse.expires_in !== "number") {
+    throw new Error("Token response is missing access_token or expires_in.");
+  }
 }
 
-function getFetch(): typeof fetch {
-  if (typeof globalThis.fetch !== "function") {
-    throw new Error("No fetch implementation available in the current runtime.");
+function extractErrorMessage(responseText: string, fallback: string): string {
+  if (!responseText) {
+    return fallback || "Request failed.";
   }
 
-  return globalThis.fetch;
-}
-
-function buildTokenUrls(
-  baseUrl: string,
-  oauth2: ServerCommandOAuth2Options
-): string[] {
-  if (oauth2.tokenUrl) {
-    return [oauth2.tokenUrl];
-  }
-
-  const tokenPath = oauth2.tokenPath ?? DEFAULT_TOKEN_PATH;
-  const sourceUrl = new URL(baseUrl);
-  const ports = ["22345", "443", "80"];
-  const hostname = formatHostname(sourceUrl.hostname);
-
-  return ports.map((port) => {
-    return `${sourceUrl.protocol}//${hostname}:${port}${tokenPath}`;
-  });
-}
-
-function toCachedToken(
-  tokenResponse: ServerCommandTokenResponse,
-  oauth2: ServerCommandOAuth2Options
-): CachedTokenEntry {
-  const skewMs = oauth2.expiresInSkewMs ?? DEFAULT_TOKEN_SKEW_MS;
-  const expiresInMs = Math.max((tokenResponse.expires_in ?? 0) * 1000 - skewMs, 1);
-
-  return {
-    accessToken: tokenResponse.access_token,
-    expiresAt: Date.now() + expiresInMs
-  };
-}
-
-function getTokenCacheKey(
-  baseUrl: string,
-  oauth2: ServerCommandOAuth2Options
-): string {
-  return [
-    baseUrl,
-    oauth2.clientId,
-    oauth2.clientSecret,
-    oauth2.tokenUrl ?? "",
-    oauth2.tokenPath ?? "",
-    oauth2.scope ?? "",
-    oauth2.grantType ?? ""
-  ].join("\u0000");
-}
-
-function safeParseJson(value: string): Partial<ServerCommandTokenResponse> | undefined {
   try {
-    return JSON.parse(value) as Partial<ServerCommandTokenResponse>;
+    const parsed = JSON.parse(responseText) as Record<string, unknown>;
+    const candidates = [parsed.error_description, parsed.error, parsed.Message, parsed.message];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.length > 0) {
+        return candidate;
+      }
+    }
   } catch {
-    return undefined;
-  }
-}
-
-function shouldTryNextTokenUrl(error: unknown): boolean {
-  if (error instanceof ServerCommandError) {
-    return error.status === 404;
+    return responseText;
   }
 
-  return error instanceof TypeError;
-}
-
-function getErrorCode(error: unknown): string {
-  if (error instanceof ServerCommandError) {
-    return String(error.status);
-  }
-
-  return "UNKNOWN_ERROR";
+  return responseText;
 }
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof ServerCommandError) {
-    return error.responseText || error.message;
-  }
-
-  if (error instanceof Error) {
+  if (error instanceof Error && error.message) {
     return error.message;
   }
 
-  return String(error);
+  return "Request failed.";
 }
 
-function ensureTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value : `${value}/`;
+export function __resetTokenCacheForTests(): void {
+  tokenCache.clear();
 }
-
-function trimSlashes(value: string): string {
-  return value.replace(/^\/+|\/+$/g, "");
-}
-
-function formatHostname(hostname: string): string {
-  return hostname.includes(":") ? `[${hostname}]` : hostname;
-}
-
-function buildHeaders(headers: Record<string, string | undefined>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(headers).filter(([, value]) => value !== undefined)
-  ) as Record<string, string>;
-}
-
-export { ServerCommandError };
