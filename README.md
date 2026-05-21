@@ -46,7 +46,7 @@ await callServerCommandWithCookie(
   "https://example.com/playground",
   "demoCommand",
   JSON.stringify({ hello: "world" }),
-  "sid=abc123",
+  "ForguncyServer=9mfghtL3fR2S...",
   (httpCode, responseInJSON, errorMessage) => {
     console.log(httpCode, responseInJSON, errorMessage);
   }
@@ -78,7 +78,7 @@ await callGetTableDataWithOffsetWithCookie(
     "target-page": 1,
     "page-limit-row-count": 0
   },
-  "sid=abc123",
+  "ForguncyServer=9mfghtL3fR2S...",
   (httpCode, responseInJSON, errorMessage) => {
     console.log(httpCode, responseInJSON, errorMessage);
   }
@@ -104,7 +104,7 @@ await callGetComboBindingOptionsWithCookie(
     "table-name": "数据表1",
     "page-name": "测试页面"
   },
-  "sid=abc123",
+  "ForguncyServer=9mfghtL3fR2S...",
   (httpCode, responseInJSON, errorMessage) => {
     console.log(httpCode, responseInJSON, errorMessage);
   }

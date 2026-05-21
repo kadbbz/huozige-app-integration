@@ -253,6 +253,70 @@ test("invoke fetches and caches token before calling server command", async () =
   }
 });
 
+test("invoke token cache is isolated by token url and client id", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    calls.push({ input, init });
+    if (String(input).includes("/UserService/connect/token")) {
+      const clientId = new URLSearchParams(init.body).get("client_id");
+      return Response.json({ access_token: `token-for-${clientId}`, expires_in: 120 });
+    }
+
+    return new Response(JSON.stringify({ ErrCode: 0 }), { status: 200 });
+  };
+
+  try {
+    await invokeWithCallback((callback) =>
+      invoke(
+        "POST",
+        "https://example.com:8091/playground",
+        "login-command",
+        JSON.stringify({ param1: "a" }),
+        "client-a",
+        "secret-key",
+        callback
+      )
+    );
+
+    await invokeWithCallback((callback) =>
+      invoke(
+        "POST",
+        "https://example.com:8091/playground",
+        "login-command",
+        JSON.stringify({ param1: "a" }),
+        "client-a",
+        "secret-key",
+        callback
+      )
+    );
+
+    await invokeWithCallback((callback) =>
+      invoke(
+        "POST",
+        "https://example.com:8091/playground",
+        "login-command",
+        JSON.stringify({ param1: "a" }),
+        "client-b",
+        "secret-key",
+        callback
+      )
+    );
+
+    assert.equal(calls.length, 5);
+    assert.equal(calls[0].input, "https://example.com:22345/UserService/connect/token");
+    assert.equal(calls[1].input, "https://example.com:8091/playground/ServerCommand/login-command");
+    assert.equal(calls[2].input, "https://example.com:8091/playground/ServerCommand/login-command");
+    assert.equal(calls[3].input, "https://example.com:22345/UserService/connect/token");
+    assert.equal(calls[4].input, "https://example.com:8091/playground/ServerCommand/login-command");
+    assert.equal(calls[1].init.headers.get("Authorization"), "Bearer token-for-client-a");
+    assert.equal(calls[2].init.headers.get("Authorization"), "Bearer token-for-client-a");
+    assert.equal(calls[4].init.headers.get("Authorization"), "Bearer token-for-client-b");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("cookie endpoints send cookie header to the expected endpoints", async () => {
   const calls = [];
   const originalFetch = globalThis.fetch;

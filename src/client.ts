@@ -175,7 +175,8 @@ async function getAccessToken(
 
   for (let index = 0; index < tokenUrls.length; index += 1) {
     const tokenUrl = tokenUrls[index];
-    const cachedToken = tokenCache.get(tokenUrl);
+    const cacheKey = createTokenCacheKey(tokenUrl, clientId);
+    const cachedToken = tokenCache.get(cacheKey);
     if (cachedToken && cachedToken.expiresAt > Date.now()) {
       return cachedToken.accessToken;
     }
@@ -205,7 +206,7 @@ async function getAccessToken(
 
       const tokenResponse = (await response.json()) as TokenResponse;
       validateTokenResponse(tokenResponse);
-      tokenCache.set(tokenUrl, {
+      tokenCache.set(cacheKey, {
         accessToken: tokenResponse.access_token,
         expiresAt: Date.now() + Math.max(tokenResponse.expires_in - 1, 0) * 1000
       });
@@ -221,6 +222,10 @@ async function getAccessToken(
   }
 
   throw lastError instanceof Error ? lastError : new Error("Failed to acquire access token.");
+}
+
+function createTokenCacheKey(tokenUrl: string, clientId: string): string {
+  return `${tokenUrl}|${clientId}`;
 }
 
 function createTokenUrls(appBaseUrl: string): string[] {

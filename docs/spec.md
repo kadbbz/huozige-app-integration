@@ -153,7 +153,7 @@ grant_type=client_credentials
 
 ### 3.5 Token 缓存规则
 
-- 缓存键为最终实际访问的 token URL。
+- 缓存键为最终实际访问的 token URL + `clientId`。
 - 当 token 返回：
 
 ```json
@@ -166,7 +166,7 @@ grant_type=client_credentials
 SDK 会将其缓存到内存中。
 
 - 过期时间按 `expires_in - 1` 秒计算。
-- 当缓存未过期时，后续相同 token URL 直接复用，不再重新请求。
+- 当缓存未过期时，后续相同 token URL 且相同 `clientId` 直接复用，不再重新请求。
 
 ### 3.6 Token 回退规则
 
