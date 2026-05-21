@@ -4,6 +4,8 @@ export type HuozigeCallback = (
   errorMessage: string | null
 ) => void;
 
+export type HuozigeRequestMethod = "GET" | "POST";
+
 export interface TokenResponse {
   access_token: string;
   expires_in: number;

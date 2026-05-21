@@ -1,6 +1,6 @@
 {
-  "name": "call-huozige-servercommand",
-  "version": "0.1.0",
+  "name": "huozige-app-integration",
+  "version": "0.1.1",
   "description": "TypeScript SDK for Huozige WebAPI server commands.",
   "keywords": [
     "typescript",

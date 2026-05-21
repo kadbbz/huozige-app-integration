@@ -1,120 +1,127 @@
-# 活字格WebAPI SDK（ts版）
+# huozige-app-integration 规格说明
 
-## 目的
+## 目标
 
-帮助ts的项目调用使用活字格开发的WebAPP的API接口，通常用于系统集成。
+提供一个 TypeScript SDK，用于调用活字格服务端命令以及基于 Cookie 的 WebAPI 接口。
 
-## 调用模式一：机机接口
+## 公共约定
 
-机机接口是指使用活字格面向第三方系统开发的服务端命令，采用OAuth2客户端凭证模式认证。因为机机接口的实现，不能依赖“当前用户/CurrentUser”，所以通常不能直接复用面向Web前端的服务端命令、数据绑定后端服务等人机接口。
+所有接收 `appBaseUrl` 的接口都必须兼容以下两种形式：
 
-机机接口名为：invoke，需要传入以下参数：
+- `https://example.com/playground`
+- `https://example.com/playground/`
 
-- appBaseUrl：使用【获取APP根目录的URL】命令获取，如 `https://xxx:8091/xxx`
-- serverCommand：服务端命令名
-- requestInJSON：请求参数，通常为JSON对象序列化后的字符串，无参数的话，这里可以传null或{}
-- clientId：客户端标识符，匿名访问时，这里可以传null或undefined
-- secretKey：客户端密钥，匿名访问时，这里可以传null或undefined
+所有公开接口的第一个参数都是 `method`：
 
-输出参数：
+- 支持 `POST` 和 `GET`
+- 默认值为 `POST`
+- 当 `method` 为 `POST` 时，发送 `requestInJSON` 作为请求体
+- 当 `method` 为 `GET` 时，不发送请求体，而是把 `requestInJSON` 转为 URL query
+- 当 `requestInJSON` 是 JSON 对象字符串时，按对象字段展开为 query 参数
+- 当字段值是对象或数组时，使用 `JSON.stringify(value)` 后再写入 query
+- 当 `requestInJSON` 不是合法的 JSON 对象字符串时，回退为 `requestInJSON=<原始内容>`
 
-- callback：回调，function(httpCode,responseInJSON,errorMessage)
-  - httpCode：服务器返回的code，如200
-  - responseInJSON：响应内容，通常为JSON序列化的对象，来自服务器的响应
-  - errorMessage：如果服务器返回的code不是200，这里需要传递错误消息
+## 公开接口
 
-实现方法：
+### `invoke(method, appBaseUrl, serverCommand, requestInJSON, clientId, secretKey, callback)`
 
-1. 从appBaseUrl中推断出获取token的Url地址，{schema}://{Server}:22345/UserService/connect/token 或 {schema}://{Server}/UserService/connect/token ，22345是首选，如果不存在则回退到默认端口
-2. 向获取token的Url发送x-www-form-urlencoded编码的参数
-|参数|说明|示例|
-|client_id|客户端标识符|使用clientId参数|
-|client_secret|客户端密钥|使用secretKey参数|
-|scope|申请的权限范围|固定为： FGC_AllAppsServerCommands|
-|grant_type|申请方式|固定为：client_credentials|
-3. 解析返回的值，获取 access_token 和 expires_in（单位是秒），将access_token缓存到内存，缓存Key为token的Url地址，过期时间为expires_in-1秒
-4. 发送请求到appBaseUrl + /ServerCommand/ + 服务端命令名称，head的Authorization为Bearer + 空格 + access_token，body是requestInJSON
-5. 等待请求返回后，执行callback回调，按照约定传递参数
+- `method`：请求方法，支持 `POST` 和 `GET`
+- `appBaseUrl`：应用根地址，例如 `https://example.com/playground`
+- `serverCommand`：服务端命令名称
+- `requestInJSON`：JSON 字符串格式的请求内容，可为空
+- `clientId`：OAuth 客户端 ID，可为空
+- `secretKey`：OAuth 客户端密钥，可为空
+- `callback`：`function(httpCode, responseInJSON, errorMessage)`
 
-## 调用模式二：人机接口
+行为说明：
 
-人机接口指使用Cookie模拟前端调用所有公开服务端命令和数据绑定后端服务（GetTableDataWithOffset、GetComboBindingOptions）。
+1. 如果 `clientId` 和 `secretKey` 同时存在，先获取令牌：
+   - `{scheme}://{host}:22345/UserService/connect/token`
+   - 回退地址：`{scheme}://{host}/UserService/connect/token`
+2. 再向以下地址发送服务端命令请求：
+   - `{appBaseUrl}/ServerCommand/{encodeURIComponent(serverCommand)}`
+3. 当 `method` 为 `POST` 时，发送 `requestInJSON` 作为请求体。
+4. 当 `method` 为 `GET` 时，不发送请求体，而是将 `requestInJSON` 转成 query 参数后附加到 URL。
 
-人机接口分为4个接口：call-server-command-with-cookie, call-get-table-data-with-offset-with-cookie, call-get-combo-binding-options-with-cookie，均需要传入以下参数：
+### `callServerCommandWithCookie(method, appBaseUrl, serverCommand, requestInJSON, cookie, callback)`
 
-- appBaseUrl：使用【获取APP根目录的URL】命令获取，如 `https://xxx:8091/xxx`
-- requestInJSON：请求参数，通常为JSON对象序列化后的字符串，无参数的话，这里可以传null或{}
-- cookie：Cookie字符串
+- 请求地址：`{appBaseUrl}/ServerCommand/{encodeURIComponent(serverCommand)}`
+- 当 `cookie` 不为空时，附加 `Cookie` 请求头
+- 支持 `POST` 和 `GET`
 
-输出参数：
+### `callGetTableDataWithOffsetWithCookie(appBaseUrl, tableBinding, cookie, callback)`
 
-- callback：回调，function(httpCode,responseInJSON,errorMessage)
-  - httpCode：服务器返回的code，如200
-  - responseInJSON：响应内容，通常为JSON序列化的对象，来自服务器的响应
-  - errorMessage：如果服务器返回的code不是200，这里需要传递错误消息
+- 请求地址：`{appBaseUrl}/Home/GetTableDataWithOffset`
+- 当 `cookie` 不为空时，附加 `Cookie` 请求头
+- method 固定为 `POST`
+- tableBinding的数据结构如下所示，columns是列定义（含列名和绑定ID），table-name是数据表的名字，page-name是页面的名字，target-page是当前需要获取的数据分页（1基），page-limit-row-count是每一页的行数（0表示不分页）：
 
-实现方法：
-
-1. 发送请求到endpoint，head的Cookie为cookie，body是requestInJSON，endpoint的生成方法如下
-   1. call-server-command-with-cookie：appBaseUrl + /ServerCommand/ + 服务端命令名称
-   2. call-get-table-data-with-offset-with-cookie：appBaseUrl + /Home/GetTableDataWithOffset
-   3. call-get-combo-binding-options-with-cookie：appBaseUrl + /Home/GetComboBindingOptions
-2. 等待请求返回后，执行callback回调，按照约定传递参数
-
-## 测试
-
-- appBaseUrl：http://10.32.6.242:8081/playground
-- clientId：ee543888-237f-4b75-81e7-f49d129d
-- secretKey：8beb37c8-ea5e-44ac-a881-5e9e0560
-- cookie：临时提供
-
-### 机机接口1/人机接口1
-
-- 服务端命令：匿名访问
-- 请求：{"参数1":"a","参数2":"b"}
-- 预期httpCode：200
-- 预期响应：
-
-```json
+```javascript
 {
-  "ErrCode": 0,
-  "返回值1": "a",
-  "返回值2": "b"
+   columns: [
+      {
+         "column-name":"文本",
+         "giud":"38bc1902-7dea-421d-a10e-4cec1c7ab95e"
+      },
+      {
+         "column-name":"整数",
+         "giud":"c93f6c99-4cdb-45de-b174-b3196a61cb7e"
+      }
+   ],
+   table-name: "数据表1",
+   page-name: "测试页面",
+   target-page: 1,
+   page-limit-row-count: 0
 }
 ```
 
-### 机机接口2/人机接口2
+该参数会被转化为HTTP请求参数：
 
-- 服务端命令：登录用户认证
-- 请求：{"参数1":"a","参数2":"b"}
-- 预期httpCode：200
-- 预期响应：
-
-```json
+```javascript
 {
-  "ErrCode": 0,
-  "返回值1": "a",
-  "返回值2": "b"
+   bindingInfos: [
+      "38bc1902-7dea-421d-a10e-4cec1c7ab95e",
+      "c93f6c99-4cdb-45de-b174-b3196a61cb7e"
+   ],
+   currentRowInfo: {
+      currentTable: "数据表1",
+      viewname: "测试页面表格1",
+      listviewLocation: "测试页面|表格1"
+   },
+   demandRowCount: 0,
+   currentDataLength: 0,
+   needRowVersion: true,
+   editorDataInfos: null,
+   sortCommandID: null,
+   orderByInfo: null,
+   offsetConditionInfo: {
+      targetPage: 1,
+      pageLimitRowCount: 0
+   },
+   columnFilterQueries: null,
+   totalRowBindingInfos: [],
+   pageName: "测试页面"
 }
 ```
 
-### 机机接口3/人机接口3
-
-- 服务端命令：登录用户认证-出错
-- 请求：{"参数1":"a","参数2":"b"}
-- 预期httpCode：200
-- 预期响应：{ErrCode: 400, Message: "错误消息", 返回值1: "a", 返回值2: "b"}
-
-### 人机接口4（GetTableDataWithOffset）
-
-- 请求
+- 返回值的结构如下所示，每一个元素表示一行数据，属性名需要使用columns中的column-name。
 
 ```json
-{"bindingInfos":["38bc1902-7dea-421d-a10e-4cec1c7ab95e","c93f6c99-4cdb-45de-b174-b3196a61cb7e"],"currentRowInfo":{"currentTable":"数据表1","viewname":"测试页面表格1","listviewLocation":"测试页面|表格1"},"demandRowCount":0,"currentDataLength":0,"needRowVersion":true,"editorDataInfos":null,"sortCommandID":null,"orderByInfo":null,"offsetConditionInfo":{"targetPage":1,"pageLimitRowCount":0},"columnFilterQueries":null,"totalRowBindingInfos":[],"pageName":"测试页面"}
+{
+   "data":[
+      {
+         "文本": "ABC",
+         "整数": 1
+      },
+      {
+         "文本": "DEF",
+         "整数": 2
+      }
+   ]
+}
 ```
 
-- 预期httpCode：200
-- 预期响应：
+该数据从返回结果，和请求参数结合，做二次加工而来，原始结果如下：
 
 ```json
 {
@@ -138,16 +145,59 @@
 }
 ```
 
-### 人机接口5（GetComboBindingOptions）
+### `callGetComboBindingOptionsWithCookie(method, appBaseUrl, comboBinding, cookie, callback)`
 
-- 请求
+- 请求地址：`{appBaseUrl}/Home/GetComboBindingOptions`
+- 当 `cookie` 不为空时，附加 `Cookie` 请求头
+- method 固定为 `POST`
+- comboBinding的数据结构如下所示，columns是列定义（含列名和绑定ID），table-name是数据表的名字，page-name是页面的名字：
 
-```json
-{"tableName":"数据表1","valueColumnBindingInfo":"9e5cf221-9fbd-4ded-aeb5-bb02449e819d","displayColumnBindingInfo":"7135e363-d135-4c05-91b2-c162a85f050c","itemQuery":null,"offset":null,"pageName":"测试页面","cacheSettingID":"f604732f-465b-3429-27d7-75ed83b39a6e"}
+```javascript
+{
+   id-column: {
+      "column-name":"整数",
+      "giud":"9e5cf221-9fbd-4ded-aeb5-bb02449e819d"
+   },
+   text-column:{
+      "column-name":"文本",
+      "giud":"7135e363-d135-4c05-91b2-c162a85f050c"
+   },
+   table-name: "数据表1",
+   page-name: "测试页面"
+}
 ```
 
-- 预期httpCode：200
-- 预期响应：
+该参数会被转化为HTTP请求参数：
+
+```javascript
+{
+   tableName: "数据表1",
+   valueColumnBindingInfo: "9e5cf221-9fbd-4ded-aeb5-bb02449e819d",
+   displayColumnBindingInfo: "7135e363-d135-4c05-91b2-c162a85f050c",
+   itemQuery: null,
+   offset: null,
+   pageName: "测试页面"
+}
+```
+
+- 返回值的结构如下所示，每一个元素表示一行数据，属性名需要使用columns中的column-name。
+
+```json
+{
+   "data":[
+      {
+         "文本": "ABC",
+         "整数": 1
+      },
+      {
+         "文本": "DEF",
+         "整数": 2
+      }
+   ]
+}
+```
+
+该数据从返回结果，和请求参数结合，做二次加工而来，原始结果如下：
 
 ```json
 {
@@ -165,3 +215,42 @@
     "SubItemsColumnTypeDic": {}
 }
 ```
+
+## 回调约定
+
+所有公开接口统一使用以下回调签名：
+
+```ts
+type HuozigeCallback = (
+  httpCode: number,
+  responseInJSON: string | null,
+  errorMessage: string | null
+) => void;
+```
+
+规则如下：
+
+- `httpCode === 0` 表示在收到 HTTP 响应前就发生了失败
+- `responseInJSON` 在可用时返回原始响应文本
+- `errorMessage` 用于承载传输错误或非 2xx 响应的错误信息
+
+## 测试覆盖
+
+当前自动化测试覆盖以下场景：
+
+- 匿名 `invoke`
+- 集成测试中的 `匿名请求-GET`
+- 带令牌缓存的鉴权 `invoke`
+- 基于 Cookie 的接口调用
+- `appBaseUrl` 带和不带尾部 `/`
+- 所有公开请求接口显式使用 `GET`
+- `GET` 请求把 `requestInJSON` 转成 query 参数
+- `GET` 请求处理非 JSON 对象字符串的回退逻辑
+- 非 2xx 响应的错误透传
+
+集成测试脚本中的服务端命令场景包括：
+
+- `匿名请求`
+- `匿名请求-GET`
+- `登录用户认证`
+- `登录用户认证-出错`

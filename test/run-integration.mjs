@@ -10,13 +10,29 @@ const config = {
   appBaseUrl: "http://xa-gcscn-mkt:8081/playground",
   clientId: "ee543888-237f-4b75-81e7-f49d129d",
   secretKey: "8beb37c8-ea5e-44ac-a881-5e9e0560",
-  cookie: "ForguncyServer=9mfghtL3fR2SNA-RRDSJPAMLbXh-H18XEC1yrC6zvjL4xxoXnCL9_gjT_y_vtedp1JknBIyxoDzsJQd7nESlMe_4CbaDY96YxImQR_AzQQRbtu7XynbHzDaWeDVBGLDaUKdY8lzGF9fuCEa2xtgKC1ud0UF69E0RqotCqXDsJ1p76ysidUJ3oqinezJ49tBpE08QOvEDqlwSbpg19be_Wrhp5u24Njy6uWDoFqmj_k2ZdGMPuY0uHvqdeQd3r3bRIxayAILJ01Q13dGVMPgF_FLpesiIJCwziqCLfM1ox5blQf0lvbjKchmFMEnDS6nldG-L7wKb6zs91RtWKgaLCJ0ojuhewACc1UmhfMlrMsveBKBWLidhlyJ04yO6rpq7Eek1IQM7hFBlHqNFOQgu_SWmydw7ygqKoViwPdLTS04u7gBNq42NQTTsMeFpDmYfGritn7thw8U2Ovl2s6ATw3QUNzPea0kpE62T__H0QxNjYEevFHIRlrcArere6nksxRoSiTFexCfxR9xG8rRsE--rKykMMb_zUqqbTYqaeHrT8MKTHZeMusWkzFGt4BUjhB91mcMCkHYQIFdSzuwksAqrBqDEySVqHsaHyBsnCdTEWGmXuBThbxrzvevqkyzij_FR0rEcyYx1Da7-U-7dl136I52xExE_7WCWId-M0LPFXZ_5opufPOHSDHC0TolN15Ut9wEnGE4F6bg3r8890uASd9dcWrAS3E0CL0yjEYsxJjVtbalN5RevzFabi84_oeF44CzLLSZaGD4Hmsmd_w6DKtAqldeNar1foJQe5b6EUCULf2BVeyf7PktG2m2QO3TaQFdnsPQVNfwiJLNrLuJh9fsZULjd3p4xRLC7LTYb0oFVEoP57iDZGaYUaH-y; fgc_UID_anMfdXFhcXwff3lm=dfc4140b-5c0a-4cfe-8ff8-81df14aa75e9"
+  cookie:
+    "ForguncyServer=9mfghtL3fR2SNA-RRDSJPAMLbXh-H18XEC1yrC6zvjL4xxoXnCL9_gjT_y_vtedp1JknBIyxoDzsJQd7nESlMe_4CbaDY96YxImQR_AzQQRbtu7XynbHzDaWeDVBGLDaUKdY8lzGF9fuCEa2xtgKC1ud0UF69E0RqotCqXDsJ1p76ysidUJ3oqinezJ49tBpE08QOvEDqlwSbpg19be_Wrhp5u24Njy6uWDoFqmj_k2ZdGMPuY0uHvqdeQd3r3bRIxayAILJ01Q13dGVMPgF_FLpesiIJCwziqCLfM1ox5blQf0lvbjKchmFMEnDS6nldG-L7wKb6zs91RtWKgaLCJ0ojuhewACc1UmhfMlrMsveBKBWLidhlyJ04yO6rpq7Eek1IQM7hFBlHqNFOQgu_SWmydw7ygqKoViwPdLTS04u7gBNq42NQTTsMeFpDmYfGritn7thw8U2Ovl2s6ATw3QUNzPea0kpE62T__H0QxNjYEevFHIRlrcArere6nksxRoSiTFexCfxR9xG8rRsE--rKykMMb_zUqqbTYqaeHrT8MKTHZeMusWkzFGt4BUjhB91mcMCkHYQIFdSzuwksAqrBqDEySVqHsaHyBsnCdTEWGmXuBThbxrzvevqkyzij_FR0rEcyYx1Da7-U-7dl136I52xExE_7WCWId-M0LPFXZ_5opufPOHSDHC0TolN15Ut9wEnGE4F6bg3r8890uASd9dcWrAS3E0CL0yjEYsxJjVtbalN5RevzFabi84_oeF44CzLLSZaGD4Hmsmd_w6DKtAqldeNar1foJQe5b6EUCULf2BVeyf7PktG2m2QO3TaQFdnsPQVNfwiJLNrLuJh9fsZULjd3p4xRLC7LTYb0oFVEoP57iDZGaYUaH-y; fgc_UID_anMfdXFhcXwff3lm=dfc4140b-5c0a-4cfe-8ff8-81df14aa75e9"
 };
 
 const cases = [
   createMachineCase({
     name: "machine-1 anonymous command",
-    serverCommand: "匿名访问",
+    serverCommand: "匿名请求",
+    requestBody: { 参数1: "a", 参数2: "b" },
+    clientId: null,
+    secretKey: null,
+    verify: (result) => {
+      assert.equal(result.httpCode, 200);
+      const body = parseJson(result.responseInJSON);
+      assert.equal(body.ErrCode, 0);
+      assert.equal(body["返回值1"], "a");
+      assert.equal(body["返回值2"], "b");
+    }
+  }),
+  createMachineCase({
+    name: "machine-1b anonymous command GET",
+    method: "GET",
+    serverCommand: "匿名请求-GET",
     requestBody: { 参数1: "a", 参数2: "b" },
     clientId: null,
     secretKey: null,
@@ -99,7 +115,7 @@ if (config.cookie) {
         pageName: "测试页面"
       },
       run: (requestInJSON, callback) =>
-        callGetTableDataWithOffsetWithCookie(config.appBaseUrl, requestInJSON, config.cookie, callback),
+        callGetTableDataWithOffsetWithCookie("POST", config.appBaseUrl, requestInJSON, config.cookie, callback),
       verify: (result) => {
         assert.equal(result.httpCode, 200);
         const body = parseJson(result.responseInJSON);
@@ -121,7 +137,7 @@ if (config.cookie) {
         cacheSettingID: "f604732f-465b-3429-27d7-75ed83b39a6e"
       },
       run: (requestInJSON, callback) =>
-        callGetComboBindingOptionsWithCookie(config.appBaseUrl, requestInJSON, config.cookie, callback),
+        callGetComboBindingOptionsWithCookie("POST", config.appBaseUrl, requestInJSON, config.cookie, callback),
       verify: (result) => {
         assert.equal(result.httpCode, 200);
         const body = parseJson(result.responseInJSON);
@@ -159,13 +175,13 @@ if (failed) {
   process.exitCode = 1;
 }
 
-function createMachineCase({ name, serverCommand, requestBody, clientId, secretKey, verify }) {
+function createMachineCase({ name, method = "POST", serverCommand, requestBody, clientId, secretKey, verify }) {
   return createGenericCase({
     name,
     endpoint: createEndpoint(config.appBaseUrl, `ServerCommand/${encodeURIComponent(serverCommand)}`),
     requestBody,
     run: (requestInJSON, callback) =>
-      invoke(config.appBaseUrl, serverCommand, requestInJSON, clientId, secretKey, callback),
+      invoke(method, config.appBaseUrl, serverCommand, requestInJSON, clientId, secretKey, callback),
     verify
   });
 }
@@ -176,7 +192,7 @@ function createCookieCommandCase({ name, serverCommand, requestBody, verify }) {
     endpoint: createEndpoint(config.appBaseUrl, `ServerCommand/${encodeURIComponent(serverCommand)}`),
     requestBody,
     run: (requestInJSON, callback) =>
-      callServerCommandWithCookie(config.appBaseUrl, serverCommand, requestInJSON, config.cookie, callback),
+      callServerCommandWithCookie("POST", config.appBaseUrl, serverCommand, requestInJSON, config.cookie, callback),
     verify
   });
 }

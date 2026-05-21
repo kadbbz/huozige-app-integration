@@ -1,4 +1,9 @@
-import type { HuozigeCallback, TokenCacheEntry, TokenResponse } from "./types.js";
+import type {
+  HuozigeCallback,
+  HuozigeRequestMethod,
+  TokenCacheEntry,
+  TokenResponse
+} from "./types.js";
 
 const TOKEN_SCOPE = "FGC_AllAppsServerCommands";
 const TOKEN_GRANT_TYPE = "client_credentials";
@@ -6,6 +11,7 @@ const TOKEN_PORT = "22345";
 const tokenCache = new Map<string, TokenCacheEntry>();
 
 export async function invoke(
+  method: HuozigeRequestMethod = "POST",
   appBaseUrl: string,
   serverCommand: string,
   requestInJSON: string | null | undefined,
@@ -28,7 +34,8 @@ export async function invoke(
       createEndpoint(appBaseUrl, `ServerCommand/${encodeURIComponent(serverCommand)}`),
       headers,
       requestInJSON,
-      callback
+      callback,
+      method
     );
   } catch (error) {
     callback(0, null, getErrorMessage(error));
@@ -36,6 +43,7 @@ export async function invoke(
 }
 
 export async function callServerCommandWithCookie(
+  method: HuozigeRequestMethod = "POST",
   appBaseUrl: string,
   serverCommand: string,
   requestInJSON: string | null | undefined,
@@ -47,11 +55,13 @@ export async function callServerCommandWithCookie(
     createEndpoint(appBaseUrl, `ServerCommand/${encodeURIComponent(serverCommand)}`),
     headers,
     requestInJSON,
-    callback
+    callback,
+    method
   );
 }
 
 export async function callGetTableDataWithOffsetWithCookie(
+  method: HuozigeRequestMethod = "POST",
   appBaseUrl: string,
   requestInJSON: string | null | undefined,
   cookie: string | null | undefined,
@@ -62,11 +72,13 @@ export async function callGetTableDataWithOffsetWithCookie(
     createEndpoint(appBaseUrl, "Home/GetTableDataWithOffset"),
     headers,
     requestInJSON,
-    callback
+    callback,
+    method
   );
 }
 
 export async function callGetComboBindingOptionsWithCookie(
+  method: HuozigeRequestMethod = "POST",
   appBaseUrl: string,
   requestInJSON: string | null | undefined,
   cookie: string | null | undefined,
@@ -77,7 +89,8 @@ export async function callGetComboBindingOptionsWithCookie(
     createEndpoint(appBaseUrl, "Home/GetComboBindingOptions"),
     headers,
     requestInJSON,
-    callback
+    callback,
+    method
   );
 }
 
@@ -97,13 +110,16 @@ async function sendRequest(
   endpoint: string,
   headers: Headers,
   requestInJSON: string | null | undefined,
-  callback: HuozigeCallback
+  callback: HuozigeCallback,
+  method: HuozigeRequestMethod
 ): Promise<void> {
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
+    const normalizedMethod = normalizeMethod(method);
+    const requestUrl = createRequestUrl(endpoint, requestInJSON, normalizedMethod);
+    const response = await fetch(requestUrl, {
+      method: normalizedMethod,
       headers,
-      body: requestInJSON ?? null
+      body: normalizedMethod === "POST" ? (requestInJSON ?? null) : undefined
     });
 
     const responseText = await response.text();
@@ -188,6 +204,49 @@ function createEndpoint(appBaseUrl: string, path: string): string {
   return new URL(path, normalizedBaseUrl).toString();
 }
 
+function createRequestUrl(
+  endpoint: string,
+  requestInJSON: string | null | undefined,
+  method: HuozigeRequestMethod
+): string {
+  if (method !== "GET" || requestInJSON == null || requestInJSON.length === 0) {
+    return endpoint;
+  }
+
+  const url = new URL(endpoint);
+  const queryEntries = createQueryEntries(requestInJSON);
+  for (const [key, value] of queryEntries) {
+    url.searchParams.append(key, value);
+  }
+
+  return url.toString();
+}
+
+function createQueryEntries(requestInJSON: string): Array<[string, string]> {
+  try {
+    const parsed = JSON.parse(requestInJSON) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [key, serializeQueryValue(value)]);
+    }
+  } catch {
+    return [["requestInJSON", requestInJSON]];
+  }
+
+  return [["requestInJSON", requestInJSON]];
+}
+
+function serializeQueryValue(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
+}
+
 function getCredentials(
   clientId: string | null | undefined,
   secretKey: string | null | undefined
@@ -197,6 +256,14 @@ function getCredentials(
   }
 
   return null;
+}
+
+function normalizeMethod(method: HuozigeRequestMethod): HuozigeRequestMethod {
+  if (method === "GET" || method === "POST") {
+    return method;
+  }
+
+  throw new Error(`Unsupported request method: ${String(method)}. Only GET and POST are allowed.`);
 }
 
 function isRetryableTokenError(error: unknown): boolean {
