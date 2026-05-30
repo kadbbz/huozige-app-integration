@@ -37,3 +37,26 @@ export interface HuozigeComboBinding {
   "table-name": string;
   "page-name": string;
 }
+
+export interface HuozigeCalcBindingColumn {
+  "response-name": string;
+  "table-name": string;
+  "column-name": string;
+}
+
+export interface HuozigeCalcBindingQueryParam {
+  "table-name": string;
+  "column-name": string;
+}
+
+export interface HuozigeCalcBindingDataSource {
+  columns: HuozigeCalcBindingColumn[];
+  "cell-location": string;
+  "table-name": string;
+  "page-name": string;
+  "query-params"?: HuozigeCalcBindingQueryParam[];
+  "metadata-version"?: string | number;
+  "is-mobile"?: boolean;
+  params?: Record<string, unknown>;
+  options?: unknown;
+}

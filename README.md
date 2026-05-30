@@ -14,6 +14,7 @@ npm install huozige-app-integration
 - `callServerCommandWithCookie`
 - `callGetTableDataWithOffsetWithCookie`
 - `callGetComboBindingOptionsWithCookie`
+- `callCalcBindingDataSourceWithCookie`
 - `HuozigeWebApiSdk`
 
 ## 用法
@@ -110,6 +111,41 @@ await callGetComboBindingOptionsWithCookie(
   }
 );
 ```
+
+### 获取 Calc 绑定数据源
+
+```ts
+import { callCalcBindingDataSourceWithCookie } from "huozige-app-integration";
+
+await callCalcBindingDataSourceWithCookie(
+  "https://example.com/playground",
+  {
+    "page-name": "Calendar 日历",
+    "cell-location": "102,2",
+    "table-name": "日程表",
+    columns: [
+      {
+        "response-name": "date",
+        "table-name": "日程表",
+        "column-name": "日期"
+      },
+      {
+        "response-name": "text",
+        "table-name": "日程表",
+        "column-name": "详情"
+      }
+    ]
+  },
+  "ForguncyServer=9mfghtL3fR2S...",
+  (httpCode, responseInJSON, errorMessage) => {
+    console.log(httpCode, responseInJSON, errorMessage);
+  }
+);
+```
+
+该接口会先通过 `GetMetadata2` 使用 `page-name + cell-location` 定位运行态绑定 `GUID`，再调用 `CalcBindingDataSource`。返回结果会按 `columns` 将 Calc 响应中的 `response-name` 字段映射为数据表 `column-name`。
+
+如果绑定存在可传入的查询参数，传入 `query-params` 与 `params`。SDK 会按顺序把 `query-params` 中的 `表名.列名` 映射到运行态 `bindingOptions.Params` 中的公式参数名；如果运行态元数据没有暴露 `Params`，SDK 会返回错误，不会发送一个服务端会忽略的无效 `Params`。
 
 ## 脚本
 

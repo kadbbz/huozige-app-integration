@@ -1,5 +1,6 @@
 import {
   __resetTokenCacheForTests,
+  callCalcBindingDataSourceWithCookie,
   callGetComboBindingOptionsWithCookie,
   callGetTableDataWithOffsetWithCookie,
   callServerCommandWithCookie,
@@ -7,6 +8,9 @@ import {
 } from "./client.js";
 
 export type {
+  HuozigeCalcBindingColumn,
+  HuozigeCalcBindingDataSource,
+  HuozigeCalcBindingQueryParam,
   HuozigeBindingColumn,
   HuozigeCallback,
   HuozigeComboBinding,
@@ -15,6 +19,7 @@ export type {
 } from "./types.js";
 export {
   __resetTokenCacheForTests,
+  callCalcBindingDataSourceWithCookie,
   callGetComboBindingOptionsWithCookie,
   callGetTableDataWithOffsetWithCookie,
   callServerCommandWithCookie,
@@ -25,5 +30,6 @@ export const HuozigeWebApiSdk = {
   invoke,
   callServerCommandWithCookie,
   callGetTableDataWithOffsetWithCookie,
-  callGetComboBindingOptionsWithCookie
+  callGetComboBindingOptionsWithCookie,
+  callCalcBindingDataSourceWithCookie
 };

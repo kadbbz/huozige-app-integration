@@ -4,12 +4,13 @@
 
 提供一个 TypeScript SDK，用于调用活字格服务端命令以及基于 Cookie 的 WebAPI 接口。
 
-SDK 对外暴露 4 个公开函数：
+SDK 对外暴露 5 个公开函数：
 
 - `invoke`
 - `callServerCommandWithCookie`
 - `callGetTableDataWithOffsetWithCookie`
 - `callGetComboBindingOptionsWithCookie`
+- `callCalcBindingDataSourceWithCookie`
 
 ## 2. 通用约定
 
@@ -38,7 +39,7 @@ type HuozigeCallback = (
 
 - `httpCode === 0`：表示在收到 HTTP 响应之前就发生了失败，例如网络错误、运行时错误、响应加工错误。
 - `httpCode >= 100`：表示已收到 HTTP 响应，此值为真实 HTTP 状态码。
-- `responseInJSON`：成功时返回响应文本。对 `callGetTableDataWithOffsetWithCookie` 与 `callGetComboBindingOptionsWithCookie` 而言，返回的是 SDK 二次加工后的 JSON 字符串；如果加工失败，则返回原始响应文本。
+- `responseInJSON`：成功时返回响应文本。对 `callGetTableDataWithOffsetWithCookie`、`callGetComboBindingOptionsWithCookie` 与 `callCalcBindingDataSourceWithCookie` 而言，返回的是 SDK 二次加工后的 JSON 字符串；如果加工失败，则返回原始响应文本。
 - `errorMessage`：当请求失败、非 2xx 响应、或成功响应的二次加工失败时返回错误消息；否则为 `null`。
 
 ### 2.3 `GET` / `POST` 规则
@@ -84,6 +85,8 @@ type HuozigeCallback = (
 - `callGetComboBindingOptionsWithCookie`
 
 它们的请求体不是由调用方直接传 JSON 字符串，而是由 SDK 根据绑定对象自动构造。
+
+`callCalcBindingDataSourceWithCookie` 不接收 `method` 参数，但它是两步请求：先固定 `GET` 调 `GetMetadata2`，再固定 `POST` 调 `CalcBindingDataSource`。
 
 ## 3. `invoke`
 
@@ -655,7 +658,220 @@ callback(httpCode, JSON.stringify(mappedResult), null)
 - `responseInJSON` 返回原始响应文本
 - `errorMessage` 返回加工失败信息
 
-## 7. 类型导出
+## 7. `callCalcBindingDataSourceWithCookie`
+
+### 7.1 函数签名
+
+```ts
+callCalcBindingDataSourceWithCookie(
+  appBaseUrl: string,
+  calcBinding: {
+    columns: Array<{
+      "response-name": string;
+      "table-name": string;
+      "column-name": string;
+    }>;
+    "cell-location": string;
+    "table-name": string;
+    "page-name": string;
+    "query-params"?: Array<{
+      "table-name": string;
+      "column-name": string;
+    }>;
+    "metadata-version"?: string | number;
+    "is-mobile"?: boolean;
+    params?: Record<string, unknown>;
+    options?: unknown;
+  },
+  cookie: string | null | undefined,
+  callback: HuozigeCallback
+): Promise<void>
+```
+
+### 7.2 两步请求地址
+
+第一步：
+
+```text
+GET {appBaseUrl}/Home/GetMetadata2
+```
+
+第二步：
+
+```text
+POST {appBaseUrl}/Home/CalcBindingDataSource
+```
+
+### 7.3 请求头
+
+两步请求都始终包含：
+
+```text
+Content-Type: application/json; charset=utf-8
+```
+
+当 `cookie` 为非空字符串时，两步请求都追加：
+
+```text
+Cookie: <cookie>
+```
+
+### 7.4 输入结构
+
+`calcBinding` 示例：
+
+```javascript
+{
+  "page-name": "Calendar 日历",
+  "cell-location": "102,2",
+  "table-name": "日程表",
+  columns: [
+    {
+      "response-name": "date",
+      "table-name": "日程表",
+      "column-name": "日期"
+    },
+    {
+      "response-name": "text",
+      "table-name": "日程表",
+      "column-name": "详情"
+    }
+  ]
+}
+```
+
+字段要求：
+
+- `page-name`：页面名，用于请求 `GetMetadata2`
+- `cell-location`：元数据中的单元格坐标，格式为半角逗号分隔的 `行,列`，例如 `"102,2"`；用于在 `GetMetadata2` 的 `Cells[]` 中定位运行态绑定
+- `table-name`：数据源表名，用于校验运行态绑定是否匹配
+- `metadata-version`：可选，传给 `GetMetadata2` 的 `v2` query
+- `is-mobile`：可选，传给 `GetMetadata2` 的 `isMobile` query，默认 `false`
+- `columns[n].response-name`：`CalcBindingDataSource` 原始响应中的字段名，来自元数据 `BindingInfos[n].ColumnName`
+- `columns[n].table-name`：字段来源表名，来自元数据 `BindingInfos[n].BindingInfo.TableName`
+- `columns[n].column-name`：输出字段名，来自元数据 `BindingInfos[n].BindingInfo.ColumnName`
+- `query-params`：可选，ontology-builder 扫描出的查询参数列；SDK 会按数组顺序映射到运行态 `bindingOptions.Params`
+- `params`：可选，参数的已求值结果；key 可以是运行态 `bindingOptions.Params` 中的公式参数名，也可以是 `query-params` 对应的 `表名.列名`
+- `options`：可选，直接传给 `CalcBindingDataSource` 请求体中的 `options`
+
+### 7.5 第一步请求转换规则
+
+SDK 会将 `calcBinding` 转换为 `GetMetadata2` query：
+
+```text
+pageName=Calendar 日历
+```
+
+`isMobile` 仅在 `is-mobile` 被显式传入时追加。`v2` 仅在 `metadata-version` 非空时追加。
+
+SDK 期望 `GetMetadata2` 返回形如：
+
+```json
+{
+  "calendar 日历": {
+    "metaData": "{\"Cells\":[...]}"
+  }
+}
+```
+
+解析规则：
+
+- 先按 `page-name` 或其小写形式获取页面元数据
+- 将 `metaData` 解析为 JSON 对象
+- 将 `cell-location` 解析为 `row,column`，在 `Cells[]` 中查找 `Row === row && Column === column`
+- 从命中单元格读取 `CellType.bindingOptions.GUID`
+- 如果 `CellType.bindingOptions.TableName` 存在，必须与 `calcBinding["table-name"]` 一致
+
+### 7.6 第二步请求体转换规则
+
+定位运行态绑定后，SDK 会构造：
+
+```javascript
+{
+  CommandId: "f2fc0341-2c63-49fe-bc45-05af7eb33a74"
+}
+```
+
+逐字段规则如下：
+
+- `CommandId`
+  - 取自 `GetMetadata2` 命中单元格的 `CellType.bindingOptions.GUID`
+- `Params`
+  - 如果运行态 `bindingOptions.Params` 为空数组且 `calcBinding.params` 未传，则不发送此字段
+  - 如果运行态 `bindingOptions.Params` 为空数组但传入了 `calcBinding.params`，则请求失败并通过 callback 返回错误；SDK 不发送服务端会忽略的无效参数
+  - 如果运行态 `bindingOptions.Params` 非空，则逐项从 `calcBinding.params` 中取参数值
+  - 优先匹配运行态公式参数名，例如 `"=A1"`；如果未命中，则按同一数组下标匹配 `query-params` 的 `表名.列名`，例如 `"日程表.状态"`
+  - 如果缺少必需参数值，或传入了无法匹配的多余参数，则请求失败并通过 callback 返回错误
+- `options`
+  - 取自 `calcBinding.options`
+  - 未传时不发送此字段
+
+### 7.7 原始响应结构
+
+Calendar 绑定数据源场景中，服务端返回形如：
+
+```json
+[
+  {
+    "date": "2021/11/17",
+    "text": "第23场 阿里动物园背后的品牌与IP思维"
+  }
+]
+```
+
+要求：
+
+- 顶层必须是 JSON 数组
+- 数组中每个元素必须是对象
+
+### 7.8 成功响应加工规则
+
+SDK 使用 `columns` 将原始响应字段映射为数据表字段：
+
+- 原始字段名取 `columns[n]["response-name"]`
+- 输出字段名取 `columns[n]["column-name"]`
+
+例如：
+
+```json
+{
+  "data": [
+    {
+      "日期": "2021/11/17",
+      "详情": "第23场 阿里动物园背后的品牌与IP思维"
+    }
+  ]
+}
+```
+
+加工后会执行：
+
+```ts
+callback(httpCode, JSON.stringify(mappedResult), null)
+```
+
+### 7.9 失败处理
+
+如果第一步 `GetMetadata2` 非 2xx：
+
+- `httpCode` 为 `GetMetadata2` 的 HTTP 状态码
+- `responseInJSON` 为 `GetMetadata2` 响应文本
+- `errorMessage` 按通用错误提取规则返回
+
+如果第一步为 2xx，但无法定位绑定或无法构造第二步请求：
+
+- `httpCode` 为 `GetMetadata2` 的 HTTP 状态码
+- `responseInJSON` 为 `GetMetadata2` 响应文本
+- `errorMessage` 返回定位或构造失败信息
+- 不会继续调用 `CalcBindingDataSource`
+
+如果第二步 HTTP 为 2xx，但原始响应无法按预期结构解析或加工，则：
+
+- `httpCode` 仍为 `CalcBindingDataSource` 的真实 HTTP 状态码
+- `responseInJSON` 返回 `CalcBindingDataSource` 原始响应文本
+- `errorMessage` 返回加工失败信息
+
+## 8. 类型导出
 
 SDK 额外导出以下类型：
 
@@ -665,9 +881,11 @@ type HuozigeRequestMethod
 type HuozigeBindingColumn
 type HuozigeTableBinding
 type HuozigeComboBinding
+type HuozigeCalcBindingColumn
+type HuozigeCalcBindingDataSource
 ```
 
-## 8. 当前实现中的非兼容变更
+## 9. 当前实现中的非兼容变更
 
 相对于旧接口，本次按新 spec 的非兼容变更如下：
 
@@ -679,7 +897,7 @@ type HuozigeComboBinding
 6. 绑定列字段统一使用 `guid`
 7. `callGetTableDataWithOffsetWithCookie` 的 `viewname` 与 `listviewLocation` 不再由 SDK 内部拼接，改为调用方显式传入 `view-name` 与 `list-view-location`
 
-## 9. 测试覆盖
+## 10. 测试覆盖
 
 当前自动化测试覆盖以下场景：
 
@@ -695,4 +913,8 @@ type HuozigeComboBinding
 - `callGetTableDataWithOffsetWithCookie` 的响应加工
 - `callGetComboBindingOptionsWithCookie` 的请求体转换
 - `callGetComboBindingOptionsWithCookie` 的响应加工
+- `callCalcBindingDataSourceWithCookie` 的 `GetMetadata2` 定位
+- `callCalcBindingDataSourceWithCookie` 的请求体转换
+- `callCalcBindingDataSourceWithCookie` 的响应加工
+- `callCalcBindingDataSourceWithCookie` 的元数据定位失败处理
 - 非 2xx 响应的错误透传

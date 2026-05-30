@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   __resetTokenCacheForTests,
+  callCalcBindingDataSourceWithCookie,
   callGetComboBindingOptionsWithCookie,
   callGetTableDataWithOffsetWithCookie,
   callServerCommandWithCookie,
@@ -48,7 +49,7 @@ test("invoke sends anonymous server-command request", async () => {
   }
 });
 
-test("all public request APIs accept GET method", async () => {
+test("public request APIs use their expected HTTP methods", async () => {
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -652,10 +653,270 @@ test("callGetComboBindingOptionsWithCookie maps request and response by binding 
   }
 });
 
+test("callCalcBindingDataSourceWithCookie locates runtime binding and maps rows by data columns", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    calls.push({ input, init });
+    if (String(input).includes("GetMetadata2")) {
+      return new Response(JSON.stringify(createCalcMetadataResponse()), { status: 200 });
+    }
+
+    if (String(input).includes("CalcBindingDataSource")) {
+      return new Response(
+        JSON.stringify([
+          { date: "2021/11/17", text: "第23场 阿里动物园背后的品牌与IP思维" },
+          { date: "2021/12/1", text: "开发部新人座谈" }
+        ]),
+        { status: 200 }
+      );
+    }
+
+    return new Response("not found", { status: 404 });
+  };
+
+  try {
+    const result = await invokeWithCallback((callback) =>
+      callCalcBindingDataSourceWithCookie(
+        "http://example.com/playground",
+        {
+          "page-name": "Calendar 日历",
+          "cell-location": "102,2",
+          "table-name": "日程表",
+          columns: [
+            { "response-name": "date", "table-name": "日程表", "column-name": "日期" },
+            { "response-name": "text", "table-name": "日程表", "column-name": "详情" }
+          ]
+        },
+        "sid=123",
+        callback
+      )
+    );
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].init.method, "GET");
+    const metadataUrl = new URL(calls[0].input);
+    assert.equal(metadataUrl.pathname, "/playground/Home/GetMetadata2");
+    assert.equal(metadataUrl.searchParams.get("pageName"), "Calendar 日历");
+    assert.equal(metadataUrl.searchParams.get("isMobile"), null);
+    assert.equal(metadataUrl.searchParams.get("v2"), null);
+    assert.equal(calls[0].init.headers.get("Cookie"), "sid=123");
+
+    assert.equal(calls[1].input, "http://example.com/playground/Home/CalcBindingDataSource");
+    assert.equal(calls[1].init.method, "POST");
+    assert.equal(calls[1].init.headers.get("Cookie"), "sid=123");
+    assert.equal(
+      calls[1].init.body,
+      JSON.stringify({
+        CommandId: "calc-guid"
+      })
+    );
+    assert.deepEqual(JSON.parse(result.responseInJSON), {
+      data: [
+        { 日期: "2021/11/17", 详情: "第23场 阿里动物园背后的品牌与IP思维" },
+        { 日期: "2021/12/1", 详情: "开发部新人座谈" }
+      ]
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("callCalcBindingDataSourceWithCookie sends params and options from runtime metadata", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    calls.push({ input, init });
+    if (String(input).includes("GetMetadata2")) {
+      return new Response(JSON.stringify(createCalcMetadataResponse({ params: ["=A1"] })), { status: 200 });
+    }
+
+    return new Response(JSON.stringify([{ value: "ABC" }]), { status: 200 });
+  };
+
+  try {
+    const result = await invokeWithCallback((callback) =>
+      callCalcBindingDataSourceWithCookie(
+        "http://example.com/playground",
+        {
+          "page-name": "Calendar 日历",
+          "cell-location": "102,2",
+          "table-name": "日程表",
+          columns: [{ "response-name": "value", "table-name": "日程表", "column-name": "名称" }],
+          params: { "=A1": "active" },
+          options: { distinct: true }
+        },
+        "sid=123",
+        callback
+      )
+    );
+
+    assert.equal(calls.length, 2);
+    assert.equal(
+      calls[1].init.body,
+      JSON.stringify({
+        CommandId: "calc-guid",
+        Params: { "=A1": "active" },
+        options: { distinct: true }
+      })
+    );
+    assert.deepEqual(JSON.parse(result.responseInJSON), {
+      data: [{ 名称: "ABC" }]
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("callCalcBindingDataSourceWithCookie maps query param names to runtime metadata params", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    calls.push({ input, init });
+    if (String(input).includes("GetMetadata2")) {
+      return new Response(JSON.stringify(createCalcMetadataResponse({ params: ["=A1"] })), { status: 200 });
+    }
+
+    return new Response(JSON.stringify([{ value: "ABC" }]), { status: 200 });
+  };
+
+  try {
+    await invokeWithCallback((callback) =>
+      callCalcBindingDataSourceWithCookie(
+        "http://example.com/playground",
+        {
+          "page-name": "Calendar 日历",
+          "cell-location": "102,2",
+          "table-name": "日程表",
+          "query-params": [{ "table-name": "日程表", "column-name": "状态" }],
+          columns: [{ "response-name": "value", "table-name": "日程表", "column-name": "名称" }],
+          params: { "日程表.状态": "active" }
+        },
+        "sid=123",
+        callback
+      )
+    );
+
+    assert.equal(calls.length, 2);
+    assert.equal(
+      calls[1].init.body,
+      JSON.stringify({
+        CommandId: "calc-guid",
+        Params: { "=A1": "active" }
+      })
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("callCalcBindingDataSourceWithCookie rejects supplied params when runtime metadata has no params", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  const metadataResponse = createCalcMetadataResponse();
+  globalThis.fetch = async (input, init) => {
+    calls.push({ input, init });
+    return new Response(JSON.stringify(metadataResponse), { status: 200 });
+  };
+
+  try {
+    const result = await invokeWithCallback((callback) =>
+      callCalcBindingDataSourceWithCookie(
+        "http://example.com/playground",
+        {
+          "page-name": "Calendar 日历",
+          "cell-location": "102,2",
+          "table-name": "日程表",
+          columns: [{ "response-name": "value", "table-name": "日程表", "column-name": "名称" }],
+          params: { "日程表.状态": "active" }
+        },
+        "sid=123",
+        callback
+      )
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(result.httpCode, 200);
+    assert.equal(result.responseInJSON, JSON.stringify(metadataResponse));
+    assert.match(result.errorMessage, /runtime metadata has no Params/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("callCalcBindingDataSourceWithCookie reports metadata lookup errors before calc request", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  const metadataResponse = {
+    "calendar 日历": {
+      metaData: JSON.stringify({ Cells: [] })
+    }
+  };
+  globalThis.fetch = async (input, init) => {
+    calls.push({ input, init });
+    return new Response(JSON.stringify(metadataResponse), { status: 200 });
+  };
+
+  try {
+    const result = await invokeWithCallback((callback) =>
+      callCalcBindingDataSourceWithCookie(
+        "http://example.com/playground",
+        {
+          "page-name": "Calendar 日历",
+          "cell-location": "102,2",
+          "table-name": "日程表",
+          columns: [{ "response-name": "date", "table-name": "日程表", "column-name": "日期" }]
+        },
+        "sid=123",
+        callback
+      )
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(result.httpCode, 200);
+    assert.equal(result.responseInJSON, JSON.stringify(metadataResponse));
+    assert.match(result.errorMessage, /Calc binding metadata is missing/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function invokeWithCallback(invokeFn) {
   return new Promise((resolve, reject) => {
     invokeFn((httpCode, responseInJSON, errorMessage) => {
       resolve({ httpCode, responseInJSON, errorMessage });
     }).catch(reject);
   });
+}
+
+function createCalcMetadataResponse({ guid = "calc-guid", params = [] } = {}) {
+  return {
+    "calendar 日历": {
+      metaData: JSON.stringify({
+        Cells: [
+          {
+            Row: 8,
+            Column: 2,
+            CellType: {
+              $type: "ElementUI.CalendarCellType, ElementUI"
+            }
+          },
+          {
+            Row: 102,
+            Column: 2,
+            CellType: {
+              $type: "ElementUI.CalendarCellType, ElementUI",
+              bindingOptions: {
+                $type: "ServerDesignerCommon.Model.BindingDataSourceModel, ServerDesignerCommon",
+                GUID: guid,
+                TableName: "日程表",
+                Params: params,
+                CustomColumns: []
+              }
+            }
+          }
+        ]
+      })
+    }
+  };
 }
