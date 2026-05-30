@@ -147,6 +147,16 @@ await callCalcBindingDataSourceWithCookie(
 
 如果绑定存在可传入的查询参数，传入 `query-params` 与 `params`。SDK 会按顺序把 `query-params` 中的 `表名.列名` 映射到运行态 `bindingOptions.Params` 中的公式参数名；如果运行态元数据没有暴露 `Params`，SDK 会返回错误，不会发送一个服务端会忽略的无效 `Params`。
 
+设计态元数据里的同页公式参数需要先归一成运行态参数名：例如当前页是 `出入库单填写` 时，`=出入库单填写!Container1.Text` 应按 `=Container1.Text` 传入。若要贴近前端请求，可显式传入 `options: { distinct: true }`。
+
+## 源码结构
+
+- `src/server-command.ts`：服务端命令调用，包括 OAuth 和 Cookie 两种入口。
+- `src/table-binding.ts`：`GetTableDataWithOffset` 表格数据绑定。
+- `src/candidate-binding.ts`：`GetComboBindingOptions` 候选项/下拉绑定。
+- `src/datasource-binding.ts`：`GetMetadata2` + `CalcBindingDataSource` 数据源绑定。
+- `src/client.ts`：兼容旧内部入口，仅重新导出上述模块。
+
 ## 脚本
 
 ```bash

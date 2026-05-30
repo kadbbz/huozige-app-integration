@@ -88,6 +88,17 @@ type HuozigeCallback = (
 
 `callCalcBindingDataSourceWithCookie` 不接收 `method` 参数，但它是两步请求：先固定 `GET` 调 `GetMetadata2`，再固定 `POST` 调 `CalcBindingDataSource`。
 
+### 2.5 源码模块边界
+
+源码按调用语义分为四个业务模块：
+
+- `server-command.ts`：服务端命令调用，包括 `invoke` 和 `callServerCommandWithCookie`
+- `table-binding.ts`：`GetTableDataWithOffset` 表格数据绑定
+- `candidate-binding.ts`：`GetComboBindingOptions` 候选项绑定
+- `datasource-binding.ts`：`GetMetadata2` 与 `CalcBindingDataSource` 数据源绑定
+
+共享的 URL、HTTP、错误处理、OAuth、JSON 解析逻辑放在小工具模块中。`client.ts` 只保留兼容导出，不承载业务逻辑。
+
 ## 3. `invoke`
 
 ### 3.1 函数签名
@@ -754,6 +765,12 @@ Cookie: <cookie>
 - `params`：可选，参数的已求值结果；key 可以是运行态 `bindingOptions.Params` 中的公式参数名，也可以是 `query-params` 对应的 `表名.列名`
 - `options`：可选，直接传给 `CalcBindingDataSource` 请求体中的 `options`
 
+补充约定：
+
+- ontology-builder 如果保留设计态公式 key，且公式中的页面名与当前 `page-name` 一致，应将 `=页面名!单元格或控件` 归一为 `=单元格或控件` 后再作为运行态参数 key 使用。例如 `page-name` 为 `出入库单填写` 时，`=出入库单填写!Container1.Text` 对应运行态 `=Container1.Text`。
+- SDK 当前入参中的 `query-params` 只承载业务列，即 `table-name + column-name`；运行态公式 key 仍以 `GetMetadata2` 返回的 `bindingOptions.Params` 为准。
+- 前端实际请求常带 `options: { distinct: true }`；SDK 不默认补该字段，需要调用方通过 `calcBinding.options` 显式传入。
+
 ### 7.5 第一步请求转换规则
 
 SDK 会将 `calcBinding` 转换为 `GetMetadata2` query：
@@ -801,6 +818,7 @@ SDK 期望 `GetMetadata2` 返回形如：
   - 如果运行态 `bindingOptions.Params` 为空数组但传入了 `calcBinding.params`，则请求失败并通过 callback 返回错误；SDK 不发送服务端会忽略的无效参数
   - 如果运行态 `bindingOptions.Params` 非空，则逐项从 `calcBinding.params` 中取参数值
   - 优先匹配运行态公式参数名，例如 `"=A1"`；如果未命中，则按同一数组下标匹配 `query-params` 的 `表名.列名`，例如 `"日程表.状态"`
+  - `null` 是有效参数值；例如 `Params: { "=Container1.Text": null }` 会被原样发送
   - 如果缺少必需参数值，或传入了无法匹配的多余参数，则请求失败并通过 callback 返回错误
 - `options`
   - 取自 `calcBinding.options`
